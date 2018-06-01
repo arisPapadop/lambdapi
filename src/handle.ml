@@ -8,6 +8,7 @@ open Pos
 open Sign
 open Extra
 open Files
+open State
 
 (** [gen_obj] indicates whether we should generate object files when compiling
     source files. The default behaviour is not te generate them. *)
@@ -126,7 +127,7 @@ let handle_start_proof (s:strloc) (a:term) : unit =
     ; t_goals = [g]
     ; t_focus = g }
   in
-  theorem := Some t
+  state := {!state with theorem = Some t}
 
 (** [handle_print_focus()] prints the focused goal. *)
 let handle_print_focus() : unit =
@@ -213,25 +214,25 @@ and compile : bool -> Files.module_path -> unit =
   let src = base ^ Files.src_extension in
   let obj = base ^ Files.obj_extension in
   if not (Sys.file_exists src) then abort "File [%s] not found.\n" src;
-  if List.mem path !loading then
+  if List.mem path !state.loading then
     begin
       err "Circular dependencies detected in [%s].\n" src;
       err "Dependency stack for module [%a]:\n" Files.pp_path path;
-      List.iter (err "  - [%a]\n" Files.pp_path) !loading;
+      List.iter (err "  - [%a]\n" Files.pp_path) !state.loading;
       abort "Build aborted.\n"
     end;
-  if PathMap.mem path !loaded then
+  if PathMap.mem path !state.loaded then
     out 2 "Already loaded [%s]\n%!" src
   else if force || Files.more_recent src obj then
     begin
       let forced = if force then " (forced)" else "" in
       out 2 "Loading [%s]%s\n%!" src forced;
-      loading := path :: !loading;
+      state := {!state with loading = path :: !state.loading};
       let sign = Sign.create path in
-      loaded := PathMap.add path sign !loaded;
+      state := {!state with loaded = PathMap.add path sign !state.loaded};
       handle_cmds (try Parser.parse_file src with Fatal(_) -> exit 1);
       if !gen_obj then Sign.write sign obj;
-      loading := List.tl !loading;
+      state := {!state with loading = List.tl !state.loading};
       out 1 "Checked [%s]\n%!" src;
     end
   else
@@ -239,8 +240,8 @@ and compile : bool -> Files.module_path -> unit =
       out 2 "Loading [%s]\n%!" src;
       let sign = Sign.read obj in
       PathMap.iter (fun mp _ -> compile false mp) !(sign.deps);
-      loaded := PathMap.add path sign !loaded;
-      Sign.link sign;
+      state := {!state with loaded = PathMap.add path sign !state.loaded};
+      State.link sign;
       out 2 "Loaded  [%s]\n%!" obj;
     end
 

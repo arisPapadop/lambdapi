@@ -68,12 +68,12 @@ let eq_vari : term -> term -> bool = fun t u ->
     is [Type]. *)
 let make_type =
   let empty = [||] in
-  fun () -> Meta(new_meta Type 0, empty)
+  fun () -> Meta(State.new_meta Type 0, empty)
 
 (** [make_meta ctx a] creates a metavariable of type [a],  whth an environment
     containing the variables of context [ctx]. *)
 let make_meta : Ctxt.t -> term -> term = fun ctx a ->
-  let m = new_meta (Ctxt.to_prod ctx a) (List.length ctx) in
+  let m = State.new_meta (Ctxt.to_prod ctx a) (List.length ctx) in
   let vs = List.rev_map (fun (v,_) -> Vari v) ctx in
   Meta(m, Array.of_list vs)
 
@@ -102,23 +102,6 @@ let pp_unifs : unif list pp = fun oc l ->
   | [] -> ()
   | _  -> Format.fprintf oc " if %a" (List.pp pp_unif ", ") l
 
-(** [set_meta m v] sets the value of the metavariable [m] to [v]. *)
-let set_meta : meta -> (term, term) Bindlib.mbinder -> unit = fun m v ->
-  if !debug_unif then
-    begin
-      let (xs,v) = Bindlib.unmbind v in
-      log "set_meta" "%a[%a] ← %a" pp_meta m (Array.pp pp_tvar ",") xs pp v
-    end;
-  begin
-    match m.meta_name with
-    | Defined(s)  -> let str_map = StrMap.remove s !all_metas.str_map in
-                     all_metas := {!all_metas with str_map}
-    | Internal(i) -> let int_map = IntMap.remove i !all_metas.int_map in
-                     all_metas := {!all_metas with int_map}
-  end;
-  m.meta_type := Kind;
-  m.meta_value := Some(v)
-
 (** Boolean saying whether user metavariables can be set or not. *)
 let can_instantiate : bool ref = ref true
 
@@ -128,7 +111,7 @@ let can_instantiate : bool ref = ref true
 let instantiate (m:meta) (ts:term array) (v:term) : bool =
   (!can_instantiate || internal m) && distinct_vars ts && not (occurs m v) &&
   let bv = Bindlib.bind_mvar (to_tvars ts) (lift v) in
-  Bindlib.is_closed bv && (set_meta m (Bindlib.unbox bv); true)
+  Bindlib.is_closed bv && (State.set_meta m (Bindlib.unbox bv); true)
 
 (** Exception raised by the solving algorithm when an irrecuperable
     error is found. *)

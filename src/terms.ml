@@ -402,58 +402,6 @@ let internal (m:meta) : bool =
   | Defined(_)  -> false
   | Internal(_) -> true
 
-(** Representation of the existing meta-variables. *)
-type meta_map =
-  { str_map   : meta StrMap.t
-  ; int_map   : meta IntMap.t
-  ; free_keys : Cofin.t }
-
-(** [empty_meta_map] is an emptu meta-variable map. *)
-let empty_meta_map : meta_map =
-  { str_map   = StrMap.empty
-  ; int_map   = IntMap.empty
-  ; free_keys = Cofin.full }
-
-(** [all_metas] is the reference in which the meta-variables are stored. *)
-let all_metas : meta_map ref = ref empty_meta_map
-
-(** [find_meta name] returns the meta-variable mapped to [name] in [all_metas]
-    or raises [Not_found] if the name is not mapped. *)
-let find_meta : meta_name -> meta = fun name ->
-  match name with
-  | Defined(s) -> StrMap.find s !all_metas.str_map
-  | Internal(k) -> IntMap.find k  !all_metas.int_map
-
-(** [exists_meta name] tells whether [name] is mapped in [all_metas]. *)
-let exists_meta : meta_name -> bool = fun name ->
-  match name with
-  | Defined(s) -> StrMap.mem s !all_metas.str_map
-  | Internal(k) -> IntMap.mem k  !all_metas.int_map
-
-(** [add_meta s a n] creates a new user-defined meta-variable named [s], of
-    type [a] and arity [n]. Note that [all_metas] is updated automatically
-    at the same time. *)
-let add_meta : string -> term -> int -> meta = fun s a n ->
-  let m = { meta_name  = Defined(s)
-          ; meta_type  = ref a
-          ; meta_arity = n
-          ; meta_value = ref None }
-  in
-  let str_map = StrMap.add s m !all_metas.str_map in
-  all_metas := {!all_metas with str_map}; m
-
-(** [new_meta a n] creates a new internal meta-variable of type [a] and arity
-    [n]. Note that [all_metas] is updated automatically at the same time. *)
-let new_meta : term -> int -> meta = fun a n ->
-  let (k, free_keys) = Cofin.take_smallest !all_metas.free_keys in
-  let m = { meta_name  = Internal(k)
-          ; meta_type  = ref a
-          ; meta_arity = n
-          ; meta_value = ref None }
-  in
-  let int_map = IntMap.add k m !all_metas.int_map in
-  all_metas := {!all_metas with int_map; free_keys}; m
-
 (****************************************************************************)
 (* Representation of goals and proofs. *)
 

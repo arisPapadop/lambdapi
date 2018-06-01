@@ -7,6 +7,7 @@ open Terms
 open Cmd
 open Pos
 open Extra
+open State
 
 (** Flag to enable a warning if an abstraction is not annotated (with the type
     of its domain). *)
@@ -28,19 +29,19 @@ let find_ident : env -> qident -> tbox = fun env qid ->
     (* No module path, search the local environment first. *)
     try _Vari (fst (List.assoc s env)) with Not_found ->
     (* Then, search in hypotheses. *)
-    try _Vari (fst (List.assoc s (Sign.focus_goal_hyps()))) with Not_found ->
+    try _Vari (fst (List.assoc s (focus_goal_hyps()))) with Not_found ->
     (* Then, search in the global environment. *)
-    try _Symb (Sign.find (Sign.current_sign()) s) with Not_found ->
+    try _Symb (Sign.find (current_sign()) s) with Not_found ->
     fatal "[%a] unbound variable or symbol [%s].\n" Pos.print pos s
   else
-    let sign = Sign.current_sign() in
+    let sign = current_sign() in
     if not Sign.(mp = sign.path || PathMap.mem mp !(sign.deps)) then
     (* Module path is not available (not loaded), fail. *)
     fatal "[%a] no module [%a] loaded.\n" Pos.print pos Files.pp_path mp
   else
     (* Module path loaded, look for symbol. *)
     let sign =
-      try PathMap.find mp !Sign.loaded
+      try PathMap.find mp !state.loaded
       with _ -> assert false (* cannot fail. *)
     in
     try _Symb (Sign.find sign s) with Not_found ->
