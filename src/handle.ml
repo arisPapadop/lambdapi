@@ -25,8 +25,8 @@ let handle_symdecl : bool -> strloc -> term -> unit =
     (* We check that [a] is typable by a sort. *)
     let t0 = State.save() in
     ignore (Solve.sort_type Ctxt.empty a);
-    (*FIXME: check that [a] contains no uninstantiated metavariables.*)
     let a = cleanup a in
+    (*FIXME: check that [a] contains no uninstantiated metavariables.*)
     State.rollback t0;
     ignore (Sign.add_symbol sign definable x a)
 
@@ -71,8 +71,8 @@ let handle_symdef : bool -> strloc -> term option -> term -> unit
        | Some(a) -> a
        | None    -> fatal "Cannot infer the type of [%a]." pp t
   in
+  let a = cleanup a and t = cleanup t in
   (*FIXME: check that [t] and [a] have no uninstantiated metas.*)
-  let a = cleanup a in
   State.rollback t0;
   let s = Sign.add_symbol sign Parser.definable x a in
   if not opaque then State.set s.sym_def (Some t)
