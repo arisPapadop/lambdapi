@@ -7,7 +7,7 @@ let save : unit -> t = fun () -> !current
 let rollback : t -> unit = fun t ->
   let rec fn = function
     | None   -> ()
-    | Some t -> t.undo (); let n = t.next in t.next <- None; fn n
+    | Some t -> fn t.next; t.undo (); t.next <- None
   in fn t.next; t.next <- None; current := t
 
 let set : 'a ref -> 'a -> unit = fun r v ->
