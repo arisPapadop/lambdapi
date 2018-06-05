@@ -23,8 +23,11 @@ let handle_symdecl : bool -> strloc -> term -> unit =
     let sign = current_sign() in
     if Sign.mem sign x.elt then fatal "%S already exists." x.elt;
     (* We check that [a] is typable by a sort. *)
+    let t0 = State.save() in
     ignore (Solve.sort_type Ctxt.empty a);
     (*FIXME: check that [a] contains no uninstantiated metavariables.*)
+    let a = cleanup a in
+    State.rollback t0;
     ignore (Sign.add_symbol sign definable x a)
 
 (** [handle_rule r] checks that the rule [r] preserves typing, while
@@ -34,7 +37,12 @@ let handle_rule : sym * rule -> unit = fun (s,r) ->
   fail_if_in_proof();
   if s.sym_const || !(s.sym_def) <> None then
     fatal "%a cannot be (re)defined." pp_symbol s;
+  let t0 = State.save() in
+  if !debug_meta then log "meta before sr" "%a" print_meta_stats ();
   Sr.check_rule (s, r);
+  if !debug_meta then log "meta after sr" "%a" print_meta_stats ();
+  State.rollback t0;
+  if !debug_meta then log "meta after rollback" "%a" print_meta_stats ();
   Sign.add_rule (current_sign()) s r
 
 (** [handle_symdef opaque x ao t] checks that [t] is of type [a] if
@@ -49,6 +57,7 @@ let handle_symdef : bool -> strloc -> term option -> term -> unit
   if Sign.mem sign x.elt then fatal "%S already exists." x.elt;
   (* We check that [t] has type [a] if [ao = Some a], and that [t] has
      some type [a] otherwise. *)
+  let t0 = State.save() in
   let a =
     match ao with
     | Some(a) ->
@@ -63,41 +72,46 @@ let handle_symdef : bool -> strloc -> term option -> term -> unit
        | None    -> fatal "Cannot infer the type of [%a]." pp t
   in
   (*FIXME: check that [t] and [a] have no uninstantiated metas.*)
+  let a = cleanup a in
+  State.rollback t0;
   let s = Sign.add_symbol sign Parser.definable x a in
-  if not opaque then s.sym_def := Some(t)
+  if not opaque then State.set s.sym_def (Some t)
 
 (** [handle_infer t] attempts to infer the type of [t]. In case
     of error, the program fails gracefully. *)
 let handle_infer : term -> Eval.config -> unit = fun t c ->
+  let t0 = State.save() in
   match Solve.infer Ctxt.empty t with
-  | Some(a) -> out 3 "(infr) %a : %a\n" pp t pp (Eval.eval c a)
+  | Some(a) ->
+     begin
+       out 3 "(infr) %a\n" pp (Eval.eval c a);
+       State.rollback t0
+     end
   | None    -> fatal "Cannot infer the type of [%a]." pp t
 
 (** [handle_eval t] evaluates the term [t]. *)
 let handle_eval : term -> Eval.config -> unit = fun t c ->
+  let t0 = State.save() in
   match Solve.infer Ctxt.empty t with
-  | Some(_) -> out 3 "(eval) %a\n" pp (Eval.eval c t)
+  | Some(_) ->
+     begin
+       out 3 "(eval) %a\n" pp (Eval.eval c t);
+       State.rollback t0
+     end
   | None    -> fatal "Cannot infer the type of [%a]." pp t
 
 (** [handle_test test] runs the test [test]. When the test does not
     succeed, the program may fail gracefully or continue its exection
     depending on the value of [test.is_assert]. *)
 let handle_test : test -> unit = fun test ->
-  let pp_test : test pp = fun oc test ->
-    if test.must_fail then Format.pp_print_string oc "¬(";
-    begin
-      match test.test_type with
-      | Convert(t,u) -> Format.fprintf oc "%a == %a" pp t pp u
-      | HasType(t,a) -> Format.fprintf oc "%a :: %a" pp t pp a
-    end;
-    if test.must_fail then Format.pp_print_string oc ")"
-  in
+  let t0 = State.save() in
   let result =
     match test.test_type with
     | Convert(t,u) -> Eval.eq_modulo t u
     | HasType(t,a) -> ignore (Solve.sort_type Ctxt.empty a);
                       try Solve.has_type Ctxt.empty t a with _ -> false
   in
+  State.rollback t0;
   let success = result = not test.must_fail in
   match (success, test.is_assert) with
   | (true , true ) -> ()
@@ -126,7 +140,7 @@ let handle_start_proof (s:strloc) (a:term) : unit =
     ; t_goals = [g]
     ; t_focus = g }
   in
-  theorem := Some t
+  State.set theorem (Some t)
 
 (** [handle_print_focus()] prints the focused goal. *)
 let handle_print_focus() : unit =
@@ -150,7 +164,7 @@ let handle_refine (t:term) : unit =
     fatal "Invalid refinement.";
   (* Instantiation. *)
   let vs = Array.of_list (List.map var_of_name g.g_hyps) in
-  m.meta_value := Some (Bindlib.unbox (Bindlib.bind_mvar vs bt))
+  State.set m.meta_value (Some (Bindlib.unbox (Bindlib.bind_mvar vs bt)))
 
 (** [handle_intro s] applies the [intro] tactic. *)
 let handle_intro (s:strloc) : unit =
@@ -165,14 +179,14 @@ let handle_intro (s:strloc) : unit =
 let rec handle_require : Files.module_path -> unit = fun path ->
   let sign = current_sign() in
   if not (PathMap.mem path !(sign.deps)) then
-    sign.deps := PathMap.add path [] !(sign.deps);
+    State.set sign.deps (PathMap.add path [] !(sign.deps));
   compile false path
 
 (** [handle_cmd cmd] interprets the parser-level command [cmd]. Note that this
     function may raise the [Fatal] exceptions. *)
 and handle_cmd : Parser.p_cmd loc -> unit = fun cmd ->
-  let cmd = Scope.scope_cmd cmd in
   try
+    let cmd = Scope.scope_cmd cmd in
     begin
       match cmd.elt with
       | SymDecl(b,n,a)  -> handle_symdecl b n a
@@ -191,7 +205,7 @@ and handle_cmd : Parser.p_cmd loc -> unit = fun cmd ->
       | Other(c)        -> if !debug then wrn "Unknown command %S at %a.\n"
                              c.elt Pos.print c.pos
     end;
-    if !debug_unif then log "unif" "after the command: %a" print_meta_stats ()
+    if !debug_meta then log "meta" "%a" print_meta_stats ()
   with
   | Fatal(m) -> fatal "[%a] error while handling a command.\n%s\n"
                   Pos.print cmd.pos m
@@ -220,14 +234,14 @@ and compile : bool -> Files.module_path -> unit =
   else if force || Files.more_recent src obj then
     begin
       let forced = if force then " (forced)" else "" in
-      out 2 "Loading [%s]%s\n%!" src forced;
+      out 2 "loading %S%s ...\n%!" src forced;
       loading := path :: !loading;
       let sign = Sign.create path in
       loaded := PathMap.add path sign !loaded;
       List.iter handle_cmd (Parser.parse_file src);
       if !gen_obj then Sign.write sign obj;
       loading := List.tl !loading;
-      out 1 "Checked [%s]\n%!" src;
+      out 1 "checked [%s]\n%!" src;
     end
   else
     begin

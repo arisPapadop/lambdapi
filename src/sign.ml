@@ -120,9 +120,9 @@ let link : t -> unit = fun sign ->
     with Not_found -> assert false
   in
   let fn _ s =
-    s.sym_type  := link_term !(s.sym_type);
-    s.sym_def   := Option.map link_term !(s.sym_def);
-    s.sym_rules := List.map link_rule !(s.sym_rules)
+    State.set s.sym_type (link_term !(s.sym_type));
+    State.set s.sym_def (Option.map link_term !(s.sym_def));
+    State.set s.sym_rules (List.map link_rule !(s.sym_rules))
   in
   StrMap.iter fn !(sign.symbols);
   let gn path ls =
@@ -132,12 +132,12 @@ let link : t -> unit = fun sign ->
     let h (n, r) =
       let r = link_rule r in
       let s = find sign n in
-      s.sym_rules := !(s.sym_rules) @ [r];
+      State.set s.sym_rules (!(s.sym_rules) @ [r]);
       (n, r)
     in
     Some(List.map h ls)
   in
-  sign.deps := filter_map gn !(sign.deps)
+  State.set sign.deps (filter_map gn !(sign.deps))
 
 (** [unlink sign] removes references to external symbols (and thus signatures)
     in the signature [sign]. This function is used to minimize the size of our
@@ -189,7 +189,7 @@ let add_symbol : t -> bool -> strloc -> term -> sym =
     { sym_name = sym_name ; sym_type = ref sym_type ; sym_path = sign.path
     ; sym_def  = ref None ; sym_rules = ref [] ; sym_const = not definable }
   in
-  sign.symbols := StrMap.add sym_name sym !(sign.symbols);
+  State.set sign.symbols (StrMap.add sym_name sym !(sign.symbols));
   out 3 "(symb) %s\n" sym_name; sym
 
 (** [is_const s] tells whether the symbol is constant. *)
@@ -227,11 +227,12 @@ let read : string -> t = fun fname ->
     the rule does not correspond to a symbol of the current signature,  it  is
     also stored in the dependencies. *)
 let add_rule : t -> sym -> rule -> unit = fun sign sym r ->
-  sym.sym_rules := !(sym.sym_rules) @ [r];
+  State.set sym.sym_rules (!(sym.sym_rules) @ [r]);
   out 3 "(rule) %a\n" Print.pp_rule (sym, r);
   if sym.sym_path <> sign.path then
     let m =
       try PathMap.find sym.sym_path !(sign.deps)
       with Not_found -> assert false
     in
-    sign.deps := PathMap.add sym.sym_path ((sym.sym_name,r) :: m) !(sign.deps)
+    State.set sign.deps
+      (PathMap.add sym.sym_path ((sym.sym_name,r) :: m) !(sign.deps))

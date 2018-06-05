@@ -3,6 +3,8 @@
 open Files
 open Terms
 open Pos
+open Print
+open Extra
 
 (** Type of the tests that can be made in a file. *)
 type test_type =
@@ -13,6 +15,16 @@ type test =
   { is_assert : bool (** Should the program fail if the test fails? *)
   ; must_fail : bool (** Is this test supposed to fail? *)
   ; test_type : test_type  (** The test itself. *) }
+
+(** [pp_test oc t] prints the test [t] to channel [oc]. *)
+let pp_test : test pp = fun oc test ->
+  if test.must_fail then Format.pp_print_string oc "¬(";
+  begin
+    match test.test_type with
+    | Convert(t,u) -> Format.fprintf oc "%a == %a" pp t pp u
+    | HasType(t,a) -> Format.fprintf oc "%a :: %a" pp t pp a
+  end;
+  if test.must_fail then Format.pp_print_string oc ")"
 
 (** Representation of a toplevel command. *)
 type cmd = cmd_aux loc
